@@ -1,26 +1,29 @@
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from typing import Dict
 from models import ChatRequest
-from app_state import app_state
 from langchain.chains import RetrievalQA 
+from prometheus_client import Counter
 
 router = APIRouter()
+
+guardrail_counter = Counter(
+    "guardrail_interventions_total",
+    "Number of times the guardrail intercepted or modified an LLM response"
+)
 
 @router.get("/")
 def read_root():
     return {"message": "API do Assistente de Saúde Informativo"}
 
 @router.post("/chat")
-async def handle_chat(request: ChatRequest) -> Dict:
-    
-    llm = app_state.get("llm")
-    vector_store = app_state.get("vector_store")
-    prompt = app_state.get("prompt")
+async def handle_chat(request: Request, body: ChatRequest) -> Dict:
+    llm = getattr(request.app.state, "llm", None)
+    vector_store = getattr(request.app.state, "vector_store", None)
+    prompt = getattr(request.app.state, "prompt", None)
     
     if not all([llm, vector_store, prompt]):
-        raise HTTPException(status_code=503, detail="Serviço indisponível.")
-
+        raise HTTPException(status_code=503, detail="Serviço indisponível ou base de documentos não inicializada.")
 
     retriever = vector_store.as_retriever(
         search_kwargs={'k': 3}
@@ -34,7 +37,10 @@ async def handle_chat(request: ChatRequest) -> Dict:
         chain_type_kwargs={"prompt": prompt}
     )
 
-    response = qa_chain.invoke(request.question)
+    try:
+        response = qa_chain.invoke(body.question)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao processar modelo: {str(e)}")
         
     answer = response.get('result', "Desculpe, não consegui processar a resposta.")
     
@@ -43,6 +49,7 @@ async def handle_chat(request: ChatRequest) -> Dict:
 
     if not real_sources and "Desculpe, não encontrei" not in answer:
         answer = "Desculpe, não encontrei nenhuma informação sobre isso nos meus documentos."
+        guardrail_counter.inc()
     elif real_sources:
         answer += f"\n\nFontes: {', '.join(real_sources)}"
 

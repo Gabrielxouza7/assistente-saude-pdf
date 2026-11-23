@@ -1,111 +1,73 @@
-# Assistente de Saúde Informativo
+# Assistente de Saúde Informativo (Production Grade RAG)
 
-Este projeto é um chatbot de RAG (Retrieval-Augmented Generation) focado em responder perguntas sobre documentos médicos (PDFs).
+Este projeto é um chatbot de RAG (Retrieval-Augmented Generation) focado em responder perguntas sobre documentos médicos (PDFs) com padrão de produção, observabilidade e robustez.
 
-O objetivo principal é construir um assistente 100% local, gratuito e privado, que funcione em hardware de consumidor (com pouco espaço em disco) e que possua fortes barreiras de segurança (guardrails) para impedir diagnósticos e alucinações.
-
-O sistema utiliza o LangChain para orquestrar o fluxo, Ollama para executar LLMs leves localmente, e o FastAPI para servir uma API para um frontend de chat simples.
+O sistema utiliza LangChain, Ollama para execução local de LLMs, ChromaDB, FastAPI com injeção de dependência nativa e instrumentação completa para Prometheus e Grafana, além de um **Eval Harness** automatizado.
 
 ## 🚀 Funcionalidades Principais
 
-* **100% Local e Gratuito:** Nenhuma chave de API é necessária. Não há custos.
-* **100% Privado:** Os seus PDFs e as suas perguntas nunca saem da sua máquina.
-* **Leve:** Utiliza o Ollama para rodar modelos leves (como `gemma:2b` e `nomic-embed-text`), eliminando a necessidade de `torch` e `sentence-transformers` (que consomem muito espaço em disco).
-* **Guarda de Segurança (Guardrail) Robusta:** Implementa uma verificação em duas etapas (no *prompt* e na *API*) para evitar que o bot invente respostas ou fontes que não existem nos seus documentos.
+* **100% Local e Privado:** Roda em hardware de consumidor com Ollama (`gemma:2b` e `nomic-embed-text`) e ChromaDB.
+* **Guarda de Segurança (Guardrail) Robusta:** Verificação em duas etapas para impedir diagnósticos, alucinações e garantir fontes reais.
+* **Observabilidade Completa:** Métricas expostas via Prometheus (`/metrics`) e painéis prontos no Grafana, incluindo contadores de intervenções do Guardrail.
+* **Eval Harness Automatizado:** Script de avaliação contínua (`eval/run_eval.py`) para medir latência, exatidão por palavras-chave e aderência aos avisos médicos.
+* **Containerização com Docker Compose:** Orquestração completa da API, Prometheus e Grafana.
 
-## ⚙️ Arquitetura do Projeto
-
-O fluxo de dados funciona da seguinte maneira:
-
-1.  **Frontend (HTML/JS)** envia a `pergunta` para o backend.
-2.  **FastAPI** recebe a requisição.
-3.  O `api.py` monta a **`chat_chain`** (a "linha de montagem" do LangChain) com os componentes em `app_state`.
-4.  A `chat_chain` executa o RAG:
-
-    a.  Usa o `nomic-embed-text` para vetorizar a pergunta e buscar chunks (k: 3) relevantes no ChromaDB
-    
-    b.  Insere os chunks encontrados e a pergunta no CUSTOM_PROMPT_TEMPLATE.
-
-    c.  Envia o prompt final para o modelo, que gera a resposta.
-    
-5.  O `api.py` recebe a resposta, aplica a verificação de segurança, para garantir que as fontes são reais, e a devolve ao Frontend.
-
-## ⚠️ A Barreira de Segurança (Guardrail)
-
-Modelos pequenos como o `gemma:2b` tendem a "alucinar" (inventar respostas) para serem prestáveis, mesmo que o contexto (os PDFs) esteja vazio. Eles também inventam fontes para fingir que seguiram as regras.
-
-Implementámos uma solução em duas etapas para combater isto:
-
-1. O `CUSTOM_PROMPT_TEMPLATE` instrui o LLM a responder *apenas* com o contexto e a dizer "Desculpe, não encontrei..." se o contexto estiver vazio.
-2. O `api.py` não confia no LLM. Ele verifica manualmente a lista de `source_documents` que o *retriever* devolveu. Se o LLM deu uma resposta, mas a lista de fontes reais está vazia, a API descarta a resposta do LLM e substitui-a pela nossa mensagem de segurança. Isto garante que o utilizador nunca receba uma informação alucinada.
-
-## 📦 Estrutura do Projeto
+---
 
 ## 📦 Estrutura do Projeto
 
 ```bash
 assistente-saude-pdf/
-├── .venv/                  # O ambiente virtual
-├── frontend/               # O nosso frontend
-│   ├── index.html
-│   ├── style.css
-│   └── script.js
-├── pdfs_medicos/           # <-- COLOQUE OS SEUS PDFs AQUI
-│   └── exemplo.pdf
-├── storage_chroma/         # O banco vetorial (criado automaticamente)
-├── api.py                  # Define o endpoint /chat
-├── app_state.py            # Guarda a 'chain'
-├── main.py                 # O servidor FastAPI (com lifespan)
-├── models.py               # Define os modelos Pantic (ChatRequest)
-├── rag.py                  # O "coração" - Constrói a chain do LangChain
-└── requirements.txt        # As dependências Python
+├── Dockerfile              # Imagem Docker da API FastAPI
+├── docker-compose.yml      # Orquestração (API + Prometheus + Grafana)
+├── prometheus.yml          # Configuração de scraping do Prometheus
+├── api.py                  # Endpoints da API com métricas Prometheus
+├── main.py                 # Inicialização FastAPI com lifespan e state
+├── models.py               # Modelos Pydantic
+├── rag.py                  # Lógica do RAG (ChromaDB + Ollama)
+├── eval/                   # Eval Harness
+│   ├── dataset.json        # Casos de teste dourados (golden dataset)
+│   └── run_eval.py         # Executor de testes de avaliação
+├── frontend/               # Interface web estática
+├── pdfs/                   # Documentos PDF base
+└── requirements.txt        # Dependências Python
 ```
 
-## 🚀 Como Executar
+---
 
-### Pré-requisitos (Fazer 1 vez)
+## ⚙️ Como Executar com Docker Compose (Recomendado)
 
-**1. Instalar o Ollama (A Aplicação)**
-```bash
-curl -fsSL [https://ollama.com/install.sh](https://ollama.com/install.sh) | sh
-```
+A maneira mais profissional de rodar o projeto é utilizando Docker Compose para gerenciar a API e a observabilidade.
 
-**2. Baixar o modelo gemma:2b e o all-minilm (vetorizador leve).**
+### 1. Pré-requisitos
+Certifique-se de ter o Docker e o Ollama instalados localmente na sua máquina (rodando na porta 11434).
 
+Baixe os modelos necessários no Ollama:
 ```bash
 ollama pull gemma:2b
 ollama pull nomic-embed-text
 ```
-**3. Criar o Ambiente Python**
-```bash
-# Criar o .venv
-python3 -m venv .venv
-# Ativar
-source .venv/bin/activate
-# Instalar os pacotes
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-### Executando o Projeto (2 Terminais)
 
-Você precisa de dois terminais abertos na pasta assistente-saude-pdf/.
+### 2. Subir os Serviços (API + Prometheus + Grafana)
+Execute o Docker Compose na raiz do projeto:
+```bash
+docker compose up --build -d
+```
 
-Terminal 1: O Backend (API)
+* **API FastAPI:** `http://localhost:8000` (Documentação em `http://localhost:8000/docs`)
+* **Métricas Prometheus:** `http://localhost:8000/metrics`
+* **Prometheus UI:** `http://localhost:9090`
+* **Grafana:** `http://localhost:3000` (Usuário/Senha: `admin` / `admin`)
 
-Ative o ambiente virtual:
-```bash 
-source .venv/bin/activate
-```
-Inicie o servidor Uvicorn:
+---
+
+## 🧪 Executando o Eval Harness (Avaliação)
+
+Para testar a qualidade das respostas, latência e funcionamento dos guardrails do RAG:
+
+1. Certifique-se de que a API está rodando (via Docker ou `uvicorn`).
+2. Execute o script de avaliação:
 ```bash
-uvicorn main:app --reload
+python3 eval/run_eval.py
 ```
-Navegue para a pasta do frontend:
-```bash
-cd frontend
-```
-Inicie um servidor HTTP simples:
-```bash
-python3 -m http.server 9000
-```
-Abra o seu navegador e vá para: http://localhost:9000
+O script rodará os casos de teste definidos em `eval/dataset.json` e exibirá um relatório detalhado de sucesso, latência e conformidade.

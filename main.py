@@ -3,25 +3,24 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from api import router as api_router
 from rag import load_components 
-from app_state import app_state
+from prometheus_fastapi_instrumentator import Instrumentator
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    
     llm, vector_store, prompt = load_components()
     
-    app_state["llm"] = llm
-    app_state["vector_store"] = vector_store
-    app_state["prompt"] = prompt
+    app.state.llm = llm
+    app.state.vector_store = vector_store
+    app.state.prompt = prompt
     
     print("--- API Pronta ---")
     
     yield
     
     print("--- Evento de Desligamento (Shutdown) ---")
-    app_state["llm"] = None
-    app_state["vector_store"] = None
-    app_state["prompt"] = None
+    app.state.llm = None
+    app.state.vector_store = None
+    app.state.prompt = None
 
 app = FastAPI(
     title="API RAG de Saúde (LangChain)",
@@ -35,6 +34,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Instrument Prometheus
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # Inclui as rotas do api.py
 app.include_router(api_router)

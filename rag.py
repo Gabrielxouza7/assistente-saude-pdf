@@ -1,9 +1,10 @@
 import os
-import sys
+os.environ["OLLAMA_HOST"] = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_ollama.chat_models import ChatOllama  
-from langchain_ollama.embeddings import OllamaEmbeddings 
+from langchain_ollama.chat_models import ChatOllama
+from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import PromptTemplate
 
@@ -32,39 +33,40 @@ Resposta Informativa:
 """
 
 def load_components():
+    ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    
     # 1. Configurar LLM
-    llm = ChatOllama(model="gemma:2b")
+    llm = ChatOllama(model="gemma:2b", base_url=ollama_base_url)
 
-    # 2. Configurar Modelo de Embedding (Ollama - 'nomic-embed-text')
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    # 2. Configurar Modelo de Embedding (langchain_community aceita base_url explicitamente)
+    embeddings = OllamaEmbeddings(model="nomic-embed-text", base_url=ollama_base_url)
 
     # 3. Lógica "Carregar OU Criar" o Índice (com ChromaDB)
-    if os.path.exists("./storage_chroma"):
+    if os.path.exists("./storage_chroma") and os.listdir("./storage_chroma"):
         vector_store = Chroma(
             persist_directory="./storage_chroma",
             embedding_function=embeddings
         )
     else:
         if not os.path.exists("./pdfs") or not os.listdir("./pdfs"):
-            sys.exit(1)
+            print("Aviso: Pasta ./pdfs vazia ou inexistente.")
+            vector_store = None
+        else:
+            loader_pdf = PyPDFDirectoryLoader("./pdfs", glob="**/*.pdf")
+            docs_pdf = loader_pdf.load()
             
-        loader_pdf = PyPDFDirectoryLoader("./pdfs", glob="**/*.pdf")
-        docs_pdf = loader_pdf.load()
-        
-        # 2. Criamos um leitor para .PDF (maiúsculo)
-        loader_PDF = PyPDFDirectoryLoader("./pdfs", glob="**/*.PDF")
-        docs_PDF = loader_PDF.load()
-        
-        # 3. Juntamos as duas listas
-        documents = docs_pdf + docs_PDF
+            loader_PDF = PyPDFDirectoryLoader("./pdfs", glob="**/*.PDF")
+            docs_PDF = loader_PDF.load()
+            
+            documents = docs_pdf + docs_PDF
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-        chunks = text_splitter.split_documents(documents)
-        vector_store = Chroma.from_documents(
-            documents=chunks,
-            embedding=embeddings,
-            persist_directory="./storage_chroma"
-        )
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+            chunks = text_splitter.split_documents(documents)
+            vector_store = Chroma.from_documents(
+                documents=chunks,
+                embedding=embeddings,
+                persist_directory="./storage_chroma"
+            )
 
     prompt = PromptTemplate(
         template=CUSTOM_PROMPT_TEMPLATE,
