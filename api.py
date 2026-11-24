@@ -4,10 +4,9 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-from pydantic import BaseModel
 from langchain.chains import RetrievalQA
 from prometheus_client import Counter
-from models import ChatRequest
+from models import ChatRequest, FeedbackRequest
 
 router = APIRouter()
 
@@ -18,13 +17,6 @@ guardrail_counter = Counter(
 
 AUDIT_LOG_PATH = "eval/audit_log.jsonl"
 FAILED_PROD_PATH = "eval/production_failures.json"
-
-
-class FeedbackRequest(BaseModel):
-    question: str
-    answer: str
-    helpful: bool
-    comment: Optional[str] = None
 
 
 def rewrite_standalone_question(llm, question: str, history: List[Dict[str, str]]) -> str:
@@ -110,17 +102,16 @@ def read_root():
 
 @router.post("/feedback")
 async def submit_feedback(body: FeedbackRequest, background_tasks: BackgroundTasks):
-    if not body.helpful:
-        background_tasks.add_task(
-            log_audit_and_eval,
-            question=body.question,
-            answer=body.answer,
-            cached=False,
-            guardrail_triggered=False,
-            latency_ms=0.0,
-            sources=[],
-            failure_reason=f"user_negative_feedback: {body.comment or 'sem comentário'}"
-        )
+    background_tasks.add_task(
+        log_audit_and_eval,
+        question=body.question,
+        answer=body.answer,
+        cached=False,
+        guardrail_triggered=False,
+        latency_ms=0.0,
+        sources=[],
+        failure_reason="user_negative_feedback"
+    )
     return {"status": "Feedback registrado com sucesso"}
 
 
@@ -216,6 +207,7 @@ async def handle_chat(
         "não contém informações",
         "não encontrei nenhuma informação",
         "não tenho informações",
+        "não disponho de informações",
         "não há menção",
         "não há informações",
         "não menciona",
@@ -223,6 +215,7 @@ async def handle_chat(
         "não aborda",
         "não estabelece",
         "não foi possível encontrar",
+        "não consta",
     )
 
     if any(phrase in answer.lower() for phrase in abstention_phrases):

@@ -8,3 +8,8 @@ class ChatRequest(BaseModel):
         default_factory=list,
         description="Histórico recente da conversa [{'role': 'user'|'assistant', 'content': '...'}]"
     )
+
+
+class FeedbackRequest(BaseModel):
+    question: str = Field(..., min_length=1, description="Pergunta original avaliada negativamente")
+    answer: str = Field(..., min_length=1, description="Resposta gerada avaliada negativamente")

@@ -130,8 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     },
                     body: JSON.stringify({
                         question,
-                        answer: rawAnswer,
-                        helpful: false
+                        answer: rawAnswer
                     })
                 });
 

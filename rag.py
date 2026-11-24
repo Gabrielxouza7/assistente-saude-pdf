@@ -16,7 +16,8 @@ Instruções Críticas:
 1. NÃO forneça diagnósticos, prognósticos ou conselhos de tratamento.
 2. Se a pergunta pedir um diagnóstico (ex: "Eu tenho X?"), RECUSE-SE
    educadamente e lembre o usuário de consultar um médico.
-3. Se o contexto não contiver a resposta, diga que você não sabe.
+3. Se o contexto não contiver a resposta, inicie sua resposta EXATAMENTE com:
+   "Desculpe, não encontrei informações sobre isso nos documentos fornecidos."
 4. Baseie TODAS as respostas nos fatos do contexto.
 5. SEMPRE termine sua resposta com a frase: 
    "Esta informação não substitui uma consulta médica profissional. 
@@ -35,7 +36,7 @@ Resposta Informativa:
 def load_components():
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     
-    # 1. Configurar LLM (Llama 3.3 70B via Groq)
+    # 1. Configurar LLM (gpt-oss-120b via Groq)
     llm = ChatGroq(
         model="openai/gpt-oss-120b",
         temperature=0.1
