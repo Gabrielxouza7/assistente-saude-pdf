@@ -36,10 +36,10 @@ body {
 #chat-window {
     flex-grow: 1;
     padding: 20px;
-    overflow-y: auto; /* A "magia" da scrollbar */
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 15px; /* Espaço entre as mensagens */
+    gap: 15px;
 }
 
 .message {
@@ -50,23 +50,66 @@ body {
 }
 
 .user-message {
-    align-self: flex-end; /* Mensagem do utilizador na direita */
+    align-self: flex-end;
     background-color: #007bff;
     color: white;
     border-bottom-right-radius: 5px;
 }
 
 .bot-message {
-    align-self: flex-start; /* Mensagem do bot na esquerda */
+    align-self: flex-start;
     background-color: #e9ecef;
     color: #333;
     border-bottom-left-radius: 5px;
 }
 
-/* O indicador "a pensar..." */
 .typing-indicator {
     align-self: flex-start;
     color: #888;
+    font-style: italic;
+}
+
+.feedback-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #d6d8db;
+    font-size: 0.8rem;
+}
+
+.cache-badge {
+    background-color: #d1ecf1;
+    color: #0c5460;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    margin-right: auto;
+}
+
+.feedback-btn {
+    background: transparent;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 2px 7px;
+    font-size: 0.85rem;
+    transition: background-color 0.15s;
+}
+
+.feedback-btn:hover:not(:disabled) {
+    background-color: #dee2e6;
+}
+
+.feedback-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.feedback-status {
+    color: #555;
     font-style: italic;
 }
 
@@ -95,6 +138,11 @@ body {
     font-size: 1rem;
 }
 
-#send-button:hover {
+#send-button:hover:not(:disabled) {
     background-color: #0056b3;
+}
+
+#send-button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
 }

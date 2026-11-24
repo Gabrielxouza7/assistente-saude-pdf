@@ -1,0 +1,10 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+storage_chroma/
+.git/
+.env
+eval/audit_log.jsonl
+eval/production_failures.json
+eval/failed_cases.json

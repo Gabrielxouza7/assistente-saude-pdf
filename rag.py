@@ -3,7 +3,7 @@ os.environ["OLLAMA_HOST"] = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434
 
 from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_ollama.chat_models import ChatOllama
+from langchain_groq import ChatGroq
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import PromptTemplate
@@ -35,10 +35,13 @@ Resposta Informativa:
 def load_components():
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     
-    # 1. Configurar LLM
-    llm = ChatOllama(model="gemma:2b", base_url=ollama_base_url)
+    # 1. Configurar LLM (Llama 3.3 70B via Groq)
+    llm = ChatGroq(
+        model="openai/gpt-oss-120b",
+        temperature=0.1
+    )
 
-    # 2. Configurar Modelo de Embedding (langchain_community aceita base_url explicitamente)
+    # 2. Configurar Modelo de Embedding local (Ollama)
     embeddings = OllamaEmbeddings(model="nomic-embed-text", base_url=ollama_base_url)
 
     # 3. Lógica "Carregar OU Criar" o Índice (com ChromaDB)
@@ -73,4 +76,4 @@ def load_components():
         input_variables=["context", "question"]
     )
     
-    return llm, vector_store, prompt
+    return llm, vector_store, prompt, embeddings

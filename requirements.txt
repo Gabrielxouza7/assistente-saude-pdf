@@ -1,10 +1,11 @@
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 langchain==0.2.5
-langchain-core==0.2.20  
+langchain-core==0.2.43
 langchain-community==0.2.5
 langchain-text-splitters==0.2.1
-langchain-ollama==0.1.0 
+langchain-ollama==0.1.0
+langchain-groq==0.1.9
 pypdf==4.2.0
 chromadb==0.5.3
 protobuf==4.25.3

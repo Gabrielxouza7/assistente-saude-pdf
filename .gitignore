@@ -1,11 +1,9 @@
-# Ambiente Virtual
 .venv/
 venv/
-*.venv
-
-# Caches do Python
 __pycache__/
 *.pyc
-
-# Pasta de armazenamento do Chroma
+.env
 storage_chroma/
+eval/audit_log.jsonl
+eval/production_failures.json
+eval/failed_cases.json

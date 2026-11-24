@@ -1,73 +1,91 @@
-# Assistente de Saúde Informativo (Production Grade RAG)
+# Assistente de Saúde Informativo (Production-Grade RAG)
 
-Este projeto é um chatbot de RAG (Retrieval-Augmented Generation) focado em responder perguntas sobre documentos médicos (PDFs) com padrão de produção, observabilidade e robustez.
-
-O sistema utiliza LangChain, Ollama para execução local de LLMs, ChromaDB, FastAPI com injeção de dependência nativa e instrumentação completa para Prometheus e Grafana, além de um **Eval Harness** automatizado.
-
-## 🚀 Funcionalidades Principais
-
-* **100% Local e Privado:** Roda em hardware de consumidor com Ollama (`gemma:2b` e `nomic-embed-text`) e ChromaDB.
-* **Guarda de Segurança (Guardrail) Robusta:** Verificação em duas etapas para impedir diagnósticos, alucinações e garantir fontes reais.
-* **Observabilidade Completa:** Métricas expostas via Prometheus (`/metrics`) e painéis prontos no Grafana, incluindo contadores de intervenções do Guardrail.
-* **Eval Harness Automatizado:** Script de avaliação contínua (`eval/run_eval.py`) para medir latência, exatidão por palavras-chave e aderência aos avisos médicos.
-* **Containerização com Docker Compose:** Orquestração completa da API, Prometheus e Grafana.
+Sistema de RAG (Retrieval-Augmented Generation) desenvolvido para responder perguntas informativas com base exclusiva em documentos médicos (PDFs), estruturado com arquitetura híbrida, cache semântico, memória conversacional, guardrails de segurança, observabilidade completa e ciclo contínuo de avaliação (*Eval Harness* + *Data Flywheel*).
 
 ---
 
-## 📦 Estrutura do Projeto
+## Arquitetura do Sistema
 
-```bash
+* **Inferência LLM (Nuvem - Groq):** Utiliza `openai/gpt-oss-120b` via API da Groq para geração de respostas rápidas e reescrita contextual de perguntas de acompanhamento (*Standalone Question Rewriting*).
+* **Embeddings & Vector Store (Local):** Utiliza `nomic-embed-text` rodando localmente via Ollama e persistência vetorial em ChromaDB (`./storage_chroma`).
+* **Cache Semântico:** Coleção dedicada no ChromaDB com similaridade cosseno (`threshold = 0.80`) que responde perguntas recorrentes em milissegundos sem consumir tokens do LLM.
+* **Guardrails & Segurança Médica:** Prompt restritivo combinado com pós-processamento que bloqueia diagnósticos, omite fontes quando há abstenção por falta de contexto e garante o aviso médico obrigatório em todas as respostas.
+* **Observabilidade & Data Flywheel:**
+  * Métricas em tempo real expostas em `/metrics` (latência p95, taxa de requisições HTTP, intervenções de guardrail e hits/misses do cache semântico) visualizadas no **Prometheus** e **Grafana**.
+  * Auditoria assíncrona (`BackgroundTasks`) registrando todas as interações em `eval/audit_log.jsonl` e capturando abstenções, erros ou feedbacks negativos (`👎` no frontend) em `eval/production_failures.json`.
+
+---
+
+## Estrutura do Projeto
+
+```text
 assistente-saude-pdf/
-├── Dockerfile              # Imagem Docker da API FastAPI
-├── docker-compose.yml      # Orquestração (API + Prometheus + Grafana)
-├── prometheus.yml          # Configuração de scraping do Prometheus
-├── api.py                  # Endpoints da API com métricas Prometheus
-├── main.py                 # Inicialização FastAPI com lifespan e state
-├── models.py               # Modelos Pydantic
-├── rag.py                  # Lógica do RAG (ChromaDB + Ollama)
-├── eval/                   # Eval Harness
-│   ├── dataset.json        # Casos de teste dourados (golden dataset)
-│   └── run_eval.py         # Executor de testes de avaliação
-├── frontend/               # Interface web estática
-├── pdfs/                   # Documentos PDF base
-└── requirements.txt        # Dependências Python
+├── Dockerfile                        # Imagem Docker da API FastAPI
+├── docker-compose.yml                # Orquestração (Ollama + API + Prometheus + Grafana)
+├── prometheus.yml                    # Configuração de scraping do Prometheus
+├── api.py                            # Endpoints (/chat, /feedback), rewriting, guardrails e auditoria
+├── main.py                           # Inicialização FastAPI com lifespan, CORS e instrumentação
+├── models.py                         # Schemas Pydantic (ChatRequest com suporte a histórico)
+├── rag.py                            # Pipeline RAG (ChatGroq + OllamaEmbeddings + ChromaDB)
+├── semantic_cache.py                 # Cache semântico vetorial com métricas Prometheus
+├── grafana/provisioning/             # Datasource e dashboard provisionados automaticamente
+├── eval/                             # Eval Harness & Data Flywheel
+│   ├── dataset.json                  # Golden dataset para testes de regressão
+│   └── run_eval.py                   # Executor automatizado de avaliação (single-turn e multi-turn)
+├── frontend/                         # Interface web estática (HTML/CSS/JS com feedback 👎)
+├── pdfs/                             # Documentos médicos base (PDFs)
+└── requirements.txt                  # Dependências Python
 ```
 
 ---
 
-## ⚙️ Como Executar com Docker Compose (Recomendado)
-
-A maneira mais profissional de rodar o projeto é utilizando Docker Compose para gerenciar a API e a observabilidade.
+## Como Executar com Docker Compose
 
 ### 1. Pré-requisitos
-Certifique-se de ter o Docker e o Ollama instalados localmente na sua máquina (rodando na porta 11434).
+* Docker e Docker Compose instalados.
+* Uma chave de API gratuita da Groq (`GROQ_API_KEY`).
 
-Baixe os modelos necessários no Ollama:
+Crie um arquivo `.env` na raiz do projeto com sua chave:
+
 ```bash
-ollama pull gemma:2b
-ollama pull nomic-embed-text
+GROQ_API_KEY=gsk_sua_chave_aqui
 ```
 
-### 2. Subir os Serviços (API + Prometheus + Grafana)
-Execute o Docker Compose na raiz do projeto:
+### 2. Subir toda a Stack
+Na raiz do projeto, execute:
+
 ```bash
-docker compose up --build -d
+sudo docker compose up --build -d
 ```
 
-* **API FastAPI:** `http://localhost:8000` (Documentação em `http://localhost:8000/docs`)
+O container `ollama-init` baixará automaticamente o modelo `nomic-embed-text` antes de iniciar a API.
+
+* **API FastAPI (Swagger):** `http://localhost:8000/docs`
 * **Métricas Prometheus:** `http://localhost:8000/metrics`
 * **Prometheus UI:** `http://localhost:9090`
-* **Grafana:** `http://localhost:3000` (Usuário/Senha: `admin` / `admin`)
+* **Grafana:** `http://localhost:3000` (Login: `admin` / `admin`)
+
+### 3. Rodar o Frontend
+Em um terminal na pasta `frontend/`:
+
+```bash
+python3 -m http.server 5500
+```
+
+Acesse `http://127.0.0.1:5500` no navegador.
 
 ---
 
-## 🧪 Executando o Eval Harness (Avaliação)
+## Eval Harness & Regressão Contínua
 
-Para testar a qualidade das respostas, latência e funcionamento dos guardrails do RAG:
+Para validar exatidão semântica, aderência ao aviso médico, memória conversacional e latência:
 
-1. Certifique-se de que a API está rodando (via Docker ou `uvicorn`).
-2. Execute o script de avaliação:
 ```bash
 python3 eval/run_eval.py
 ```
-O script rodará os casos de teste definidos em `eval/dataset.json` e exibirá um relatório detalhado de sucesso, latência e conformidade.
+
+Para promover um prompt capturado em `eval/production_failures.json` para o conjunto permanente de testes de regressão (`eval/dataset.json`):
+
+```bash
+python3 eval/run_eval.py --add-question "Sua pergunta aqui" --keywords palavra1 palavra2
+```

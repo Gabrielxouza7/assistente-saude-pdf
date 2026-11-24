@@ -24,7 +24,6 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        ollama pull gemma:2b
         ollama pull nomic-embed-text
     restart: "no"
 
@@ -36,9 +35,11 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_HOST=http://ollama:11434
+      - GROQ_API_KEY=${GROQ_API_KEY}
     volumes:
       - ./storage_chroma:/app/storage_chroma
       - ./pdfs:/app/pdfs
+      - ./eval:/app/eval
     depends_on:
       ollama-init:
         condition: service_completed_successfully
@@ -63,7 +64,13 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
     restart: unless-stopped
 
 volumes:
   ollama_data:
+  grafana_data:
