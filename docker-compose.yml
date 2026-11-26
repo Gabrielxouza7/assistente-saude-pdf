@@ -33,12 +33,14 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - PYTHONUNBUFFERED=1
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_HOST=http://ollama:11434
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - MEDICAL_TOPICS=cáncer de mama,cáncer de próstata,cáncer de pulmón,cáncer colorrectal,cáncer de cuello uterino,cáncer de estómago,cáncer de hígado,melanoma,leucemia,linfoma,presión arterial alta,ataque al corazón,insuficiencia cardíaca,accidente cerebrovascular,fibrilación auricular,enfermedad de las arterias coronarias,trombosis venosa profunda,embolia pulmonar,aterosclerosis,miocarditis,diabetes tipo 1,diabetes tipo 2,obesidad,colesterol alto,hipotiroidismo,hipertiroidismo,síndrome metabólico,gota,hígado graso,síndrome de ovario poliquístico,asma,enfermedad pulmonar obstructiva crónica,neumonía,tuberculosis,rinitis alérgica,sinusitis,bronquitis crónica,apnea del sueño,fibrosis pulmonar,covid-19,gripe,dengue,zika,chikungunya,fiebre amarilla,malaria,enfermedad de chagas,leishmaniasis,leptospirosis,vih sida,hepatitis b,hepatitis c,sífilis,virus del papiloma humano,herpes simple,meningitis,sepsis,lepra,sarampión,varicela,enfermedad de alzheimer,enfermedad de parkinson,epilepsia,migraña,esclerosis múltiple,esclerosis lateral amiotrófica,neuropatía diabética,depresión,trastorno de ansiedad,trastorno bipolar,esquizofrenia,trastorno del espectro autista,trastorno de déficit de atención e hiperactividad,trastorno obsesivo-compulsivo,trastorno de estrés postraumático,reflujo gastroesofágico,gastritis,úlcera péptica,enfermedad de crohn,colitis ulcerativa,síndrome del intestino irritable,cirrosis,pancreatitis,cálculos biliares,enfermedad celíaca,enfermedad renal crónica,cálculos renales,infecciones de las vías urinarias,hiperplasia prostática benigna,endometriosis,artritis reumatoide,osteoartritis,osteoporosis,lupus,fibromialgia,psoriasis,eczema,anemia,glaucoma,cataratas
+      - DOCS_PER_TOPIC=3
     volumes:
       - ./storage_chroma:/app/storage_chroma
-      - ./pdfs:/app/pdfs
       - ./eval:/app/eval
     depends_on:
       ollama-init:

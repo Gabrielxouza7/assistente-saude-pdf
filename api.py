@@ -21,33 +21,39 @@ guardrail_counter = Counter(
 AUDIT_LOG_PATH = "eval/audit_log.jsonl"
 FAILED_PROD_PATH = "eval/production_failures.json"
 
-# Condense the current question with recent conversation history into a standalone query
-def rewrite_standalone_question(llm, question: str, history: List[Dict[str, str]]) -> str:
-    recent_history = history[-4:]
-    formatted_history = "\n".join(
-        f"{'Usuário' if msg.get('role') == 'user' else 'Assistente'}: {msg.get('content', '')}"
-        for msg in recent_history
-    )
+# Condense conversation history and translate the retrieval query to Spanish to match the MedlinePlus index
+def build_retrieval_query(llm, question: str, history: List[Dict[str, str]]) -> str:
+    formatted_history = ""
+    if history:
+        recent_history = history[-4:]
+        formatted_history = (
+            "Histórico recente:\n"
+            + "\n".join(
+                f"{'Usuário' if msg.get('role') == 'user' else 'Assistente'}: {msg.get('content', '')}"
+                for msg in recent_history
+            )
+            + "\n\n"
+        )
 
-    # Build the prompt instructing the LLM to resolve pronouns using recent context
+    # Build the prompt instructing the LLM to resolve pronouns and translate to Spanish for vector search
     condense_prompt = (
-        "Dada a conversa abaixo e uma pergunta de acompanhamento, reescreva a pergunta de acompanhamento "
-        "para que ela seja uma pergunta independente e completa em português, substituindo pronomes como "
-        "'isso', 'dela', 'esse problema' pelo termo médico exato citado anteriormente.\n"
-        "Se a pergunta já for independente ou mudar totalmente de assunto, retorne-a exatamente como está.\n"
-        "Retorne APENAS a pergunta reescrita, sem explicações ou aspas.\n\n"
-        f"Histórico recente:\n{formatted_history}\n\n"
-        f"Pergunta de acompanhamento: {question}\n"
-        "Pergunta independente:"
+        "Você é um otimizador de busca para uma base médica indexada em espanhol (MedlinePlus).\n"
+        "Dada a pergunta do usuário (e o histórico recente, se houver), resolva quaisquer pronomes "
+        "(como 'isso', 'dela', 'esse problema') usando o histórico e traduza a pergunta resultante "
+        "para uma consulta clara e objetiva em ESPANHOL.\n"
+        "Retorne APENAS a consulta final em espanhol, sem explicações, prefixos ou aspas.\n\n"
+        f"{formatted_history}"
+        f"Pergunta atual: {question}\n"
+        "Consulta em espanhol:"
     )
 
-    # Invoke the LLM to rewrite the question and extract the stripped text response
+    # Invoke the LLM to generate the Spanish retrieval query and extract the stripped response
     try:
         res = llm.invoke(condense_prompt)
         rewritten = res.content.strip() if hasattr(res, "content") else str(res).strip()
         return rewritten if rewritten else question
 
-    # Fallback to the original question if the LLM rewriting call fails
+    # Fallback to the original question if the LLM call fails
     except Exception:
         return question
 
@@ -154,16 +160,12 @@ async def handle_chat(
             detail="Serviço indisponível ou base de documentos não inicializada."
         )
 
-    # Rewrite the question into a standalone query when conversation history is provided
-    effective_question = (
-        rewrite_standalone_question(llm, body.question, body.history)
-        if body.history
-        else body.question
-    )
+    # Resolve conversation context and translate query to Spanish for accurate vector retrieval
+    retrieval_query = build_retrieval_query(llm, body.question, body.history)
 
-    # Check the semantic cache for an existing answer to the effective question
+    # Check the semantic cache for an existing answer to the normalized query
     if semantic_cache:
-        cached_answer = semantic_cache.get(effective_question)
+        cached_answer = semantic_cache.get(retrieval_query)
 
         # Log audit metrics and return immediately when a cached answer is found
         if cached_answer:
@@ -177,16 +179,16 @@ async def handle_chat(
                 latency_ms=latency_ms,
                 sources=["semantic_cache"],
                 failure_reason=None,
-                standalone_question=effective_question
+                standalone_question=retrieval_query
             )
             return {
                 "answer": cached_answer,
                 "cached": True
             }
 
-    # Configure the vector store retriever to fetch the top 4 most relevant chunks
+    # Configure the vector store retriever to fetch the top 6 most relevant chunks
     retriever = vector_store.as_retriever(
-        search_kwargs={"k": 4}
+        search_kwargs={"k": 6}
     )
 
     # Build the RetrievalQA chain with the custom prompt and source document tracking
@@ -198,9 +200,9 @@ async def handle_chat(
         chain_type_kwargs={"prompt": prompt}
     )
 
-    # Execute the QA chain against the standalone question
+    # Execute the QA chain using the Spanish retrieval query
     try:
-        response = qa_chain.invoke(effective_question)
+        response = qa_chain.invoke(retrieval_query)
 
     # Log runtime errors and raise an HTTP 500 exception if QA chain execution fails
     except Exception as e:
@@ -214,17 +216,21 @@ async def handle_chat(
             latency_ms=latency_ms,
             sources=[],
             failure_reason="llm_runtime_error",
-            standalone_question=effective_question
+            standalone_question=retrieval_query
         )
         raise HTTPException(status_code=500, detail=f"Erro ao processar modelo: {str(e)}")
 
-    # Extract the generated answer and unique source filenames from the QA response
+    # Extract the generated answer and unique MedlinePlus citations from the QA response
     answer = response.get("result", "Desculpe, não consegui processar a resposta.")
     source_documents = response.get("source_documents", [])
-    real_sources = list(set([
-        os.path.basename(doc.metadata.get("source", "N/A"))
-        for doc in source_documents
-    ]))
+
+    formatted_sources = []
+    for doc in source_documents:
+        title = doc.metadata.get("title", "Guia MedlinePlus")
+        source_url = doc.metadata.get("source", "https://medlineplus.gov/spanish/")
+        formatted_sources.append(f"{title} ({source_url})")
+
+    real_sources = list(dict.fromkeys(formatted_sources))
 
     # Initialize guardrail tracking flags and define Portuguese abstention phrases
     guardrail_triggered = False
@@ -251,18 +257,20 @@ async def handle_chat(
         guardrail_triggered = True
         failure_reason = "abstention_or_out_of_scope"
 
-    # Append cited document filenames to the answer when valid sources were retrieved
+    # Append cited official MedlinePlus guides to the answer when valid sources were retrieved
     elif real_sources:
-        answer += f"\n\nFontes: {', '.join(real_sources)}"
+        sources_block = "\n".join(f"- {src}" for src in real_sources)
+        answer += f"\n\nFontes (MedlinePlus / NIH):\n{sources_block}"
 
-    # Ensure the mandatory medical disclaimer is appended to the final answer
+    # Ensure the mandatory medical disclaimer is appended once regardless of line breaks
     aviso_medico = "Esta informação não substitui uma consulta médica profissional. Consulte seu médico."
-    if aviso_medico not in answer:
+    normalized_answer = " ".join(answer.split())
+    if aviso_medico not in normalized_answer:
         answer += f"\n\n{aviso_medico}"
 
     # Cache the valid response in the semantic cache if no guardrail was triggered
     if semantic_cache and not guardrail_triggered:
-        semantic_cache.set(effective_question, answer)
+        semantic_cache.set(retrieval_query, answer)
 
     # Calculate total request latency and schedule background audit logging
     latency_ms = (time.perf_counter() - start_time) * 1000
@@ -275,7 +283,7 @@ async def handle_chat(
         latency_ms=latency_ms,
         sources=real_sources,
         failure_reason=failure_reason,
-        standalone_question=effective_question
+        standalone_question=retrieval_query
     )
 
     # Return the final formatted response and cache status

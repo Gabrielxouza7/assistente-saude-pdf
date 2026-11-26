@@ -33,7 +33,6 @@ assistente-saude-pdf/
 │   ├── dataset.json                  # Golden dataset para testes de regressão
 │   └── run_eval.py                   # Executor automatizado de avaliação (single-turn e multi-turn)
 ├── frontend/                         # Interface web estática (HTML/CSS/JS com feedback 👎)
-├── pdfs/                             # Documentos médicos base (PDFs)
 └── requirements.txt                  # Dependências Python
 ```
 
