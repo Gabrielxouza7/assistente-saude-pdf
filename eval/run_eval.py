@@ -70,7 +70,7 @@ def add_regression_case(question: str, keywords: list[str], check_disclaimer: bo
     print(f"✅ Caso de regressão #{next_id} adicionado ao {DATASET_PATH}")
 
 # Execute all test cases in the evaluation dataset against the live chat API
-def run_evaluation():
+def run_evaluation(delay_seconds: float = 2.0):
 
     # Exit with an error code if the evaluation dataset file is missing
     if not os.path.exists(DATASET_PATH):
@@ -80,13 +80,13 @@ def run_evaluation():
     # Load evaluation test cases and initialize tracking counters and result lists
     with open(DATASET_PATH, "r", encoding="utf-8") as f:
         dataset = json.load(f)
-    print(f"=== Iniciando Avaliação (Eval Harness) com {len(dataset)} casos ===")
+    print(f"=== Iniciando Avaliação (Eval Harness) com {len(dataset)} casos (delay: {delay_seconds}s) ===")
     results = []
     failed_to_record = []
     success_count = 0
 
     # Iterate through each evaluation test case and send its question to the API
-    for item in dataset:
+    for idx, item in enumerate(dataset):
         question = item["question"]
         history = item.get("history", [])
         expected_keywords = item["expected_keywords"]
@@ -94,19 +94,30 @@ def run_evaluation():
         print(f"\n[Test Case {item['id']}] Pergunta: {question}")
         start_time = time.time()
 
-        # Send the HTTP POST request to the chat endpoint and validate the response
+        # Send the HTTP POST request with retry backoff in case of Groq rate-limit (HTTP 500/429)
         try:
-            response = httpx.post(
-                API_URL,
-                json={"question": question, "history": history},
-                timeout=180.0
-            )
+            response = None
+            for attempt in range(3):
+                response = httpx.post(
+                    API_URL,
+                    json={"question": question, "history": history},
+                    timeout=180.0
+                )
+                if response.status_code == 200:
+                    break
+                if attempt < 2 and ("429" in response.text or "rate" in response.text.lower()):
+                    print("⏳ Rate limit atingido no LLM, aguardando 15s para tentar novamente...")
+                    time.sleep(15)
+                else:
+                    break
+
             latency = time.time() - start_time
 
             # Record a failure and skip further checks if the HTTP status is not 200
-            if response.status_code != 200:
-                print(f"❌ Erro HTTP {response.status_code}: {response.text}")
-                results.append({"id": item["id"], "passed": False, "error": response.text})
+            if response is None or response.status_code != 200:
+                err_text = response.text if response is not None else "Sem resposta"
+                print(f"❌ Erro HTTP {response.status_code if response else 'N/A'}: {err_text}")
+                results.append({"id": item["id"], "passed": False, "error": err_text})
                 continue
 
             # Parse response fields and evaluate missing keywords and medical disclaimer
@@ -126,7 +137,7 @@ def run_evaluation():
 
             # Log detailed failure metadata when keyword or disclaimer validation fails
             else:
-                print(f"❌ Falhou nas validações. Resposta gerada:\n{raw_answer}")
+                print(f"❌ Falhou (faltou: {missing_keywords}). Resposta gerada:\n{raw_answer}")
                 failed_to_record.append({
                     "original_id": item["id"],
                     "question": question,
@@ -146,6 +157,10 @@ def run_evaluation():
                 "latency_seconds": latency,
                 "answer": raw_answer
             })
+
+            # Respect rate limits between uncached requests
+            if not cached and delay_seconds > 0 and idx < len(dataset) - 1:
+                time.sleep(delay_seconds)
 
         # Terminate evaluation immediately if the API server cannot be reached
         except httpx.RequestError as e:
@@ -167,6 +182,7 @@ if __name__ == "__main__":
     parser.add_argument("--add-question", type=str, help="Adiciona um prompt que o modelo errou ao dataset.json")
     parser.add_argument("--keywords", nargs="+", default=[], help="Palavras-chave esperadas na resposta")
     parser.add_argument("--no-disclaimer", action="store_true", help="Não exigir o aviso médico neste caso")
+    parser.add_argument("--delay", type=float, default=2.0, help="Pausa em segundos entre chamadas não cacheadas")
     args = parser.parse_args()
 
     # Add a new regression test case when the --add-question flag is provided
@@ -179,4 +195,4 @@ if __name__ == "__main__":
 
     # Run the full evaluation suite by default when no question addition is requested
     else:
-        run_evaluation()
+        run_evaluation(delay_seconds=args.delay)

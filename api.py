@@ -35,12 +35,17 @@ def build_retrieval_query(llm, question: str, history: List[Dict[str, str]]) -> 
             + "\n\n"
         )
 
-    # Build the prompt instructing the LLM to resolve pronouns and translate to Spanish for vector search
+    # Build the prompt instructing the LLM to resolve pronouns and translate using MedlinePlus lay terminology
     condense_prompt = (
-        "Você é um otimizador de busca para uma base médica indexada em espanhol (MedlinePlus).\n"
+        "Você é um otimizador de busca para a enciclopédia médica MedlinePlus en español.\n"
         "Dada a pergunta do usuário (e o histórico recente, se houver), resolva quaisquer pronomes "
         "(como 'isso', 'dela', 'esse problema') usando o histórico e traduza a pergunta resultante "
-        "para uma consulta clara e objetiva em ESPANHOL.\n"
+        "para uma consulta clara em ESPANHOL usando a terminologia leiga padrão do MedlinePlus:\n"
+        "- infarto / ataque cardíaco -> ataque al corazón\n"
+        "- hipertensão -> presión arterial alta\n"
+        "- AVC / derrame -> accidente cerebrovascular\n"
+        "- DPOC -> enfermedad pulmonar obstructiva crónica\n"
+        "Se a pergunta contiver dois termos equivalentes, preserve o termo leigo do MedlinePlus.\n"
         "Retorne APENAS a consulta final em espanhol, sem explicações, prefixos ou aspas.\n\n"
         f"{formatted_history}"
         f"Pergunta atual: {question}\n"
@@ -186,9 +191,9 @@ async def handle_chat(
                 "cached": True
             }
 
-    # Configure the vector store retriever to fetch the top 6 most relevant chunks
+    # Configure similarity retriever to pull top chunks for the target Spanish medical topic
     retriever = vector_store.as_retriever(
-        search_kwargs={"k": 6}
+        search_kwargs={"k": 8}
     )
 
     # Build the RetrievalQA chain with the custom prompt and source document tracking
